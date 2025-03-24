@@ -5,7 +5,7 @@ import torch
 app = FastAPI()
 
 # Load the GPT-2 model and tokenizer
-model_name = "gpt2"  # You can use "gpt2-medium", "gpt2-large", etc.
+model_name = "gpt2-large"  # You can use "gpt2-medium", "gpt2-large", etc.
 tokenizer = GPT2Tokenizer.from_pretrained(model_name)
 model = GPT2LMHeadModel.from_pretrained(model_name)
 
