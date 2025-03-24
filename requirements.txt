@@ -1,8 +1,5 @@
-Flask
-transformers
-torch
-FastAPI
 fastapi==0.95.2
 uvicorn==0.22.0
-transformers==4.31.0
+transformers==4.28.1
 torch==2.0.1
+numpy==1.24.4
