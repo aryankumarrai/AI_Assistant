@@ -1,16 +1,11 @@
-# System files
-AppData/
-Local Settings/
-*.tmp
-*.log
-
-# Hugging Face cache
-.cache/
-
-# IDE files
-.idea/
-.vscode/
-
-# Python
+# System
+.DS_Store
 __pycache__/
 *.pyc
+
+# Hugging Face
+.cache/
+/cache/
+
+# Logs
+*.log
