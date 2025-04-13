@@ -3,26 +3,28 @@ import time
 from fastapi import FastAPI, Request, HTTPException
 from transformers import GPT2LMHeadModel, GPT2Tokenizer
 import torch
+from pathlib import Path
+import os
 
+# Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
-tokenizer = None
-model = None
+# Create cache directory
+cache_dir = Path("/cache")
+cache_dir.mkdir(exist_ok=True, parents=True)
 
-@app.on_event("startup")
-async def load_model():
-    global tokenizer, model
-    try:
-        logger.info("Loading tokenizer and model (gpt2)...")
-        tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
-        model = GPT2LMHeadModel.from_pretrained("gpt2")
-        logger.info("Model loaded.")
-    except Exception as e:
-        logger.error(f"Model loading failed: {e}")
-        raise RuntimeError("Model loading failed")
+# Load model and tokenizer with explicit cache
+try:
+    logger.info("Loading tokenizer and model...")
+    tokenizer = GPT2Tokenizer.from_pretrained('gpt2', cache_dir=cache_dir)
+    model = GPT2LMHeadModel.from_pretrained('gpt2', cache_dir=cache_dir)
+    logger.info("Model loaded successfully!")
+except Exception as e:
+    logger.error(f"Model loading failed: {e}")
+    raise RuntimeError("Model loading failed")
 
 @app.post("/generate")
 async def generate(request: Request):
