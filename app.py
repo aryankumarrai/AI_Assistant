@@ -47,7 +47,10 @@ async def generate(request: Request):
             temperature=0.7
         )
         
-        return {"response": tokenizer.decode(outputs[0], "status": "success"}
+        return {
+    "response": tokenizer.decode(outputs[0], skip_special_tokens=True),
+    "status": "success"
+}
     
     except torch.cuda.OutOfMemoryError:
         raise HTTPException(429, "Prompt too long")
