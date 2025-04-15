@@ -1,63 +1,113 @@
 import logging
-from fastapi import FastAPI, Request, HTTPException
+import os
+from fastapi import FastAPI, Request, HTTPException, Depends
 from transformers import GPT2LMHeadModel, GPT2Tokenizer
 import torch
 from pathlib import Path
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from typing import Optional
 
-# Configure logging
+# Configuration
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
-
-# Create cache directory
 cache_dir = Path("/cache")
 cache_dir.mkdir(exist_ok=True, parents=True)
 
-# Load model with explicit cache
+# Rate limiting
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Security
+API_KEY = os.getenv("API_KEY", "default-secret-key")
+MODEL_NAME = os.getenv("MODEL_NAME", "gpt2")
+
+# Model loading
 try:
-    logger.info("Loading model...")
-    tokenizer = GPT2Tokenizer.from_pretrained('gpt2', cache_dir=cache_dir)
-    model = GPT2LMHeadModel.from_pretrained('gpt2', cache_dir=cache_dir)
+    logger.info(f"Loading {MODEL_NAME}...")
+    tokenizer = GPT2Tokenizer.from_pretrained(MODEL_NAME, cache_dir=cache_dir)
+    model = GPT2LMHeadModel.from_pretrained(MODEL_NAME, cache_dir=cache_dir)
     logger.info("Model loaded successfully!")
 except Exception as e:
     logger.error(f"Model loading failed: {e}")
     raise RuntimeError("Model initialization failed")
 
+# Cache setup (example using simple dict)
+response_cache = {}
+
+async def verify_api_key(request: Request):
+    api_key = request.headers.get("X-API-Key")
+    if api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    return True
+
 @app.get("/")
 async def root():
-    return {"status": "ready", "model": "gpt2"}
+    return {
+        "status": "ready",
+        "model": MODEL_NAME,
+        "endpoints": {
+            "/generate": "POST {message: str, max_length: int, temperature: float}",
+            "/health": "GET"
+        }
+    }
 
 @app.post("/generate")
-async def generate(request: Request):
+@limiter.limit("5/minute")
+async def generate(
+    request: Request,
+    message: str,
+    max_length: Optional[int] = 100,
+    temperature: Optional[float] = 0.7,
+    auth: bool = Depends(verify_api_key)
+):
     try:
-        data = await request.json()
-        user_input = data.get("message", "").strip()
-        
-        if not user_input:
-            raise HTTPException(400, "Empty input")
-
-        inputs = tokenizer.encode(user_input, return_tensors="pt")
+        # Check cache
+        cache_key = f"{message}-{max_length}-{temperature}"
+        if cache_key in response_cache:
+            return {"response": response_cache[cache_key], "source": "cache"}
+            
+        # Generate new response
+        inputs = tokenizer.encode(message, return_tensors="pt")
         
         outputs = model.generate(
             inputs,
-            max_length=100,
+            max_length=max_length,
             num_return_sequences=1,
             pad_token_id=tokenizer.eos_token_id,
-            temperature=0.7
+            temperature=temperature,
+            do_sample=True
         )
         
+        response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+        
+        # Cache response
+        response_cache[cache_key] = response
+        
         return {
-    "response": tokenizer.decode(outputs[0], skip_special_tokens=True),
-    "status": "success"
-}
+            "response": response,
+            "status": "success",
+            "model": MODEL_NAME,
+            "parameters": {
+                "max_length": max_length,
+                "temperature": temperature
+            }
+        }
     
     except torch.cuda.OutOfMemoryError:
-        raise HTTPException(429, "Prompt too long")
+        raise HTTPException(429, "Prompt too long. Reduce max_length.")
     except Exception as e:
-        logger.error(f"Error: {str(e)}")
+        logger.error(f"Generation error: {str(e)}")
         raise HTTPException(500, "Generation failed")
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy"}
+    return {
+        "status": "healthy",
+        "model": MODEL_NAME,
+        "cache_size": len(response_cache)
+    }
